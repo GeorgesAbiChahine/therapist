@@ -26,5 +26,6 @@ export default function Scene() {
         enablePan={false}
       />
     </Canvas>
+    
   )
 }

@@ -1,0 +1,16 @@
+.room {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.chat {
+  width: 600px;             /* largeur du chat */
+  background-color: #000000cc;    /* fond noir */           /* texte blanc */
+
+}
+
+.scene {
+  flex: 1;       
+}
