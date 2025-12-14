@@ -4,6 +4,8 @@ import { useGLTF, Html } from "@react-three/drei"
 import { useFrame } from "@react-three/fiber"
 import { useEffect, useRef, useState } from "react"
 import * as THREE from "three"
+// 👇 UPDATED IMPORT PATH
+import { getTherapistResponse } from "@/app/actions/chat" 
 
 type Emotion = "neutral" | "happy" | "concerned"
 
@@ -27,11 +29,12 @@ export default function Avatar() {
   const [input, setInput] = useState("")
   const [response, setResponse] = useState("Hello. I am here to listen.")
   const [isThinking, setIsThinking] = useState(false)
+  
   const blinkState = useRef({ value: 0, closing: false, nextBlink: 2.5 })
   const isSpeaking = useRef(false)
 
+  // --- INIT ---
   useEffect(() => {
-    // 1. SETUP
     const foundMouths: {mesh: THREE.Mesh, openIdx: number, smileIdx: number}[] = []
     const foundBlinks: any[] = []
 
@@ -39,7 +42,6 @@ export default function Avatar() {
       if (node.isMesh) {
         node.castShadow = true
         node.frustumCulled = false
-
         if (node.morphTargetDictionary) {
             const keys = Object.keys(node.morphTargetDictionary)
             const openIdx = keys.findIndex(k => k === "mouthOpen")
@@ -53,7 +55,6 @@ export default function Avatar() {
             }
         }
       }
-      
       if (node.isBone) {
         if (node.name === "Head" || node.name === "mixamorigHead") setHead(node)
         if (node.name === "Neck" || node.name === "mixamorigNeck") setNeck(node)
@@ -79,38 +80,52 @@ export default function Avatar() {
     leftArm.rotation.y = 0.2
   }, [rightArm, leftArm, rightForeArm, leftForeArm])
 
-  // --- CHAT LOGIC ---
-  const handleChat = (e: React.FormEvent) => {
+
+  // --- CHAT HANDLER ---
+  const handleChat = async (e: React.FormEvent) => {
       e.preventDefault()
-      if (!input.trim()) return
+      if (!input.trim() || isThinking) return
+
       setIsThinking(true)
+      const userMessage = input
+      setInput("") 
       
-      const lower = input.toLowerCase()
-      let nextEmotion: Emotion = "neutral"
-      if (lower.includes("sad") || lower.includes("bad") || lower.includes("worry") || lower.includes("hard")) nextEmotion = "concerned"
-      if (lower.includes("happy") || lower.includes("good") || lower.includes("great")) nextEmotion = "happy"
-      setEmotion(nextEmotion)
+      try {
+        // Call the new Server Action path
+        const rawText = await getTherapistResponse(userMessage)
 
-      let reply = ""
-      if (nextEmotion === "concerned") reply = "I hear that you are going through a tough time. I am here for you."
-      else if (nextEmotion === "happy") reply = "That is wonderful! I love seeing you happy."
-      else reply = "I see. Please, tell me more."
+        const tagMatch = rawText.match(/^\[(.*?)\]/)
+        let cleanText = rawText
+        let newEmotion: Emotion = "neutral"
 
-      setTimeout(() => {
-          setResponse(reply)
-          setIsThinking(false)
-          setInput("")
-          const synth = window.speechSynthesis
-          const utterance = new SpeechSynthesisUtterance(reply)
-          const voices = synth.getVoices()
-          const preferredVoice = voices.find(v => v.name.includes("Google US English") || v.name.includes("Zira"))
-          if (preferredVoice) utterance.voice = preferredVoice
-          utterance.rate = 0.9
-          utterance.onstart = () => { isSpeaking.current = true }
-          utterance.onend = () => { isSpeaking.current = false }
-          synth.cancel()
-          synth.speak(utterance)
-      }, 800) 
+        if (tagMatch) {
+            const tag = tagMatch[1].toUpperCase()
+            cleanText = rawText.replace(/^\[(.*?)\]/, "").trim() 
+
+            if (tag.includes("HAPPY")) newEmotion = "happy"
+            else if (tag.includes("CONCERNED")) newEmotion = "concerned"
+        }
+
+        setEmotion(newEmotion)
+        setResponse(cleanText)
+        setIsThinking(false)
+
+        const synth = window.speechSynthesis
+        const utterance = new SpeechSynthesisUtterance(cleanText)
+        const voices = synth.getVoices()
+        const preferredVoice = voices.find(v => v.name.includes("Google US English") || v.name.includes("Zira"))
+        if (preferredVoice) utterance.voice = preferredVoice
+        utterance.rate = 0.9
+        utterance.onstart = () => { isSpeaking.current = true }
+        utterance.onend = () => { isSpeaking.current = false }
+        synth.cancel()
+        synth.speak(utterance)
+
+      } catch (error) {
+        console.error(error)
+        setResponse("I am having trouble processing that.")
+        setIsThinking(false)
+      }
   }
 
   // --- ANIMATION LOOP ---
@@ -191,8 +206,8 @@ export default function Avatar() {
 
   // --- FINAL ALIGNMENT ---
   // Avatar: x=0.4 (Right), y=0 (Ground Level)
-  // UI: x=-0.8 (Further Left), y=1.6 (Eye Level), z=0.6 (Forward)
-  // Scale: 0.12 (Smaller)
+  // UI: x=-0.8 (Far Left), y=1.6 (Eye Level), z=0.6 (Forward)
+  // Scale: 0.12 (Small)
   return (
     <group ref={group} position={[0.4, 0, 0]}>
         <primitive object={scene} scale={1.15} />
@@ -239,4 +254,4 @@ export default function Avatar() {
   )
 }
 
-useGLTF.preload("/avatar.glb")
+useGLTF.preload("/avatar.glb") 
