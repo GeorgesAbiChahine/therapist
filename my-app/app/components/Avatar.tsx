@@ -4,10 +4,15 @@ import { useGLTF, Html } from "@react-three/drei"
 import { useFrame } from "@react-three/fiber"
 import { useEffect, useRef, useState } from "react"
 import * as THREE from "three"
-// 👇 UPDATED IMPORT PATH
 import { getTherapistResponse } from "@/app/actions/chat" 
 
 type Emotion = "neutral" | "happy" | "concerned"
+
+// New Type for History
+type Message = {
+  role: "user" | "model"
+  text: string
+}
 
 export default function Avatar() {
   const { scene } = useGLTF("/avatar.glb")
@@ -30,6 +35,9 @@ export default function Avatar() {
   const [response, setResponse] = useState("Hello. I am here to listen.")
   const [isThinking, setIsThinking] = useState(false)
   
+  // ✅ STEP 10: HISTORY STATE
+  const [history, setHistory] = useState<Message[]>([])
+
   const blinkState = useRef({ value: 0, closing: false, nextBlink: 2.5 })
   const isSpeaking = useRef(false)
 
@@ -81,7 +89,7 @@ export default function Avatar() {
   }, [rightArm, leftArm, rightForeArm, leftForeArm])
 
 
-  // --- CHAT HANDLER ---
+  // --- CHAT HANDLER (With Memory) ---
   const handleChat = async (e: React.FormEvent) => {
       e.preventDefault()
       if (!input.trim() || isThinking) return
@@ -89,10 +97,14 @@ export default function Avatar() {
       setIsThinking(true)
       const userMessage = input
       setInput("") 
+
+      // 1. Update History with User Message
+      const newHistory: Message[] = [...history, { role: "user", text: userMessage }]
+      setHistory(newHistory)
       
       try {
-        // Call the new Server Action path
-        const rawText = await getTherapistResponse(userMessage)
+        // 2. Send FULL History to Server
+        const rawText = await getTherapistResponse(newHistory)
 
         const tagMatch = rawText.match(/^\[(.*?)\]/)
         let cleanText = rawText
@@ -105,6 +117,9 @@ export default function Avatar() {
             if (tag.includes("HAPPY")) newEmotion = "happy"
             else if (tag.includes("CONCERNED")) newEmotion = "concerned"
         }
+
+        // 3. Update History with Model Response
+        setHistory(prev => [...prev, { role: "model", text: cleanText }])
 
         setEmotion(newEmotion)
         setResponse(cleanText)
@@ -204,10 +219,7 @@ export default function Avatar() {
     }
   })
 
-  // --- FINAL ALIGNMENT ---
-  // Avatar: x=0.4 (Right), y=0 (Ground Level)
-  // UI: x=-0.8 (Far Left), y=1.6 (Eye Level), z=0.6 (Forward)
-  // Scale: 0.12 (Small)
+  // --- RENDER ---
   return (
     <group ref={group} position={[0.4, 0, 0]}>
         <primitive object={scene} scale={1.15} />
@@ -254,4 +266,4 @@ export default function Avatar() {
   )
 }
 
-useGLTF.preload("/avatar.glb") 
+useGLTF.preload("/avatar.glb")
