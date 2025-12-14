@@ -2,7 +2,6 @@
 
 import { GoogleGenerativeAI } from "@google/generative-ai"
 
-// Define the shape of a message
 type Message = {
   role: "user" | "model"
   text: string
@@ -17,15 +16,16 @@ export async function getTherapistResponse(history: Message[]) {
   }
 
   const genAI = new GoogleGenerativeAI(apiKey)
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" })
+  
+  // ✅ SWITCH TO 'gemini-flash-latest'
+  // This is explicitly on your list and usually carries the high free-tier quota.
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" })
 
-  // 1. Format the conversation history for the Prompt
-  // We join previous messages into a script format.
+  // Format the conversation history
   const conversationContext = history.map(msg => 
     `${msg.role === "user" ? "User" : "Therapist"}: ${msg.text}`
   ).join("\n")
 
-  // 2. The System Prompt (Now includes History)
   const prompt = `
     You are a compassionate, empathetic therapist AI.
     
