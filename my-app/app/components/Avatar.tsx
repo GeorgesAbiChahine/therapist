@@ -1,18 +1,11 @@
 "use client"
 
-import { useGLTF, Html } from "@react-three/drei"
+import { useGLTF } from "@react-three/drei"
 import { useFrame } from "@react-three/fiber"
 import { useEffect, useRef, useState } from "react"
 import * as THREE from "three"
-import { getTherapistResponse } from "@/app/actions/chat" 
-import { generateSpeech } from "@/app/actions/voice" // 👈 NEW IMPORT
 
 type Emotion = "neutral" | "happy" | "concerned"
-
-type Message = {
-  role: "user" | "model"
-  text: string
-}
 
 export default function Avatar() {
   const { scene } = useGLTF("/avatar.glb")
@@ -31,14 +24,8 @@ export default function Avatar() {
   const [blinkMeshes, setBlinkMeshes] = useState<any[]>([]) 
   
   const [emotion, setEmotion] = useState<Emotion>("neutral")
-  const [input, setInput] = useState("")
-  const [response, setResponse] = useState("Hello. I am here to listen.")
-  const [isThinking, setIsThinking] = useState(false)
-  const [history, setHistory] = useState<Message[]>([])
-
   const blinkState = useRef({ value: 0, closing: false, nextBlink: 2.5 })
   const isSpeaking = useRef(false)
-  const currentAudio = useRef<HTMLAudioElement | null>(null) // 👈 Track Audio Player
 
   // --- INIT ---
   useEffect(() => {
@@ -54,7 +41,7 @@ export default function Avatar() {
             const openIdx = keys.findIndex(k => k === "mouthOpen")
             const smileIdx = keys.findIndex(k => k === "mouthSmile")
             if (openIdx !== -1 || smileIdx !== -1) {
-                foundMouths.push({ mesh: node, openIdx: openIdx, smileIdx: smileIdx })
+                foundMouths.push({ mesh: node, openIdx, smileIdx })
             }
             const leftIndex = keys.findIndex(k => k.includes('blink') || k.includes('Blink'))
             if (leftIndex !== -1) {
@@ -86,68 +73,6 @@ export default function Avatar() {
     rightArm.rotation.y = -0.2
     leftArm.rotation.y = 0.2
   }, [rightArm, leftArm, rightForeArm, leftForeArm])
-
-
-  // --- NEW CHAT HANDLER (With ElevenLabs) ---
-  const handleChat = async (e: React.FormEvent) => {
-      e.preventDefault()
-      if (!input.trim() || isThinking) return
-
-      setIsThinking(true)
-      const userMessage = input
-      setInput("") 
-
-      const newHistory: Message[] = [...history, { role: "user", text: userMessage }]
-      setHistory(newHistory)
-      
-      try {
-        // 1. Get Text from Gemini
-        const rawText = await getTherapistResponse(newHistory)
-
-        const tagMatch = rawText.match(/^\[(.*?)\]/)
-        let cleanText = rawText
-        let newEmotion: Emotion = "neutral"
-
-        if (tagMatch) {
-            const tag = tagMatch[1].toUpperCase()
-            cleanText = rawText.replace(/^\[(.*?)\]/, "").trim() 
-
-            if (tag.includes("HAPPY")) newEmotion = "happy"
-            else if (tag.includes("CONCERNED")) newEmotion = "concerned"
-        }
-
-        setHistory(prev => [...prev, { role: "model", text: cleanText }])
-        setEmotion(newEmotion)
-        setResponse(cleanText)
-
-        // 2. Get Audio from ElevenLabs
-        const audioUrl = await generateSpeech(cleanText)
-        
-        setIsThinking(false)
-
-        if (audioUrl) {
-            // Stop any previous audio
-            if (currentAudio.current) {
-                currentAudio.current.pause()
-                currentAudio.current = null
-            }
-
-            // Play New Audio
-            const audio = new Audio(audioUrl)
-            currentAudio.current = audio
-            audio.play()
-            
-            // Sync Lip Movement
-            isSpeaking.current = true
-            audio.onended = () => { isSpeaking.current = false }
-        }
-
-      } catch (error) {
-        console.error(error)
-        setResponse("I am having trouble processing that.")
-        setIsThinking(false)
-      }
-  }
 
   // --- ANIMATION LOOP ---
   useFrame((state, delta) => {
@@ -227,47 +152,8 @@ export default function Avatar() {
 
   // --- RENDER ---
   return (
-    <group ref={group} position={[0.4, 0, 0]}>
+    <group ref={group} position={[0, 0, 0]}>
         <primitive object={scene} scale={1.15} />
-
-        <Html 
-            position={[-0.8, 1.6, 0.6]} 
-            transform 
-            scale={0.12}
-        >
-            <div style={{
-                background: 'rgba(255, 255, 255, 0.95)',
-                padding: '12px',
-                borderRadius: '8px',
-                width: '300px',
-                fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '8px',
-                pointerEvents: 'auto'
-            }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', borderBottom: '1px solid #eee', paddingBottom: '6px' }}>
-                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: isThinking ? '#ffc107' : '#28a745' }}/>
-                    <span style={{ fontSize: '11px', color: '#888', fontWeight: 600 }}>{isThinking ? "Thinking..." : "AI Therapist"}</span>
-                </div>
-                <div style={{ fontSize: '14px', lineHeight: '1.4', color: '#222', background: '#f1f3f5', padding: '10px', borderRadius: '6px' }}>
-                    {response}
-                </div>
-                <form onSubmit={handleChat} style={{ display: 'flex', gap: '6px' }}>
-                    <input 
-                        type="text" 
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        placeholder="Say something..."
-                        style={{ flex: 1, padding: '8px', borderRadius: '4px', border: '1px solid #ddd', fontSize: '13px', outline: 'none' }}
-                    />
-                    <button type="submit" disabled={!input.trim()} style={{ padding: '8px 12px', background: '#228be6', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, fontSize: '13px' }}>
-                        Send
-                    </button>
-                </form>
-            </div>
-        </Html>
     </group>
   )
 }
