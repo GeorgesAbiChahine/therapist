@@ -5,10 +5,13 @@ import { useFrame } from "@react-three/fiber"
 import { useEffect, useRef, useState } from "react"
 import * as THREE from "three"
 
+// Define available emotions
+type Emotion = "neutral" | "happy" | "concerned"
+
 export default function Avatar() {
   const { scene } = useGLTF("/avatar.glb")
   const group = useRef<THREE.Group>(null)
-  
+
   // --- BONE STATE ---
   const [head, setHead] = useState<THREE.Object3D | null>(null)
   const [neck, setNeck] = useState<THREE.Object3D | null>(null)
@@ -20,15 +23,19 @@ export default function Avatar() {
   const [rightForeArm, setRightForeArm] = useState<THREE.Object3D | null>(null)
   const [leftForeArm, setLeftForeArm] = useState<THREE.Object3D | null>(null)
 
-  // --- FACE MESH STATE (Reverted to Morph Search) ---
-  const [faceMesh, setFaceMesh] = useState<THREE.SkinnedMesh | null>(null)
-  const [blinkIndices, setBlinkIndices] = useState<{left: number, right: number} | null>(null)
+  // --- MORPH STATE ---
+  // Store meshes AND their specific indices for smile/open
+  const [mouthMeshes, setMouthMeshes] = useState<{mesh: THREE.Mesh, openIdx: number, smileIdx: number}[]>([]) 
+  const [blinkMeshes, setBlinkMeshes] = useState<any[]>([]) 
   
-  // Blink Timer
+  const [emotion, setEmotion] = useState<Emotion>("neutral")
+  
+  // Animation Refs
   const blinkState = useRef({ value: 0, closing: false, nextBlink: 2.5 })
+  const isSpeaking = useRef(false)
 
   useEffect(() => {
-    // 1. Center Avatar
+    // 1. CENTER AVATAR (Restored exactly as requested)
     const box = new THREE.Box3().setFromObject(scene)
     const center = box.getCenter(new THREE.Vector3())
     const size = box.getSize(new THREE.Vector3())
@@ -37,33 +44,34 @@ export default function Avatar() {
     scene.position.z -= center.z
     scene.position.y += size.y / 2
 
-    // 2. Find Bones & Face Mesh
+    // 2. FIND MESHES & BONES
+    const foundMouths: {mesh: THREE.Mesh, openIdx: number, smileIdx: number}[] = []
+    const foundBlinks: any[] = []
+
     scene.traverse((node: any) => {
       if (node.isMesh) {
         node.castShadow = true
         node.frustumCulled = false
 
-        // --- SMART FIND FACE MESH (Reverted Logic) ---
         if (node.morphTargetDictionary) {
             const keys = Object.keys(node.morphTargetDictionary)
-            
-            // Search for blink shapes
-            const leftIndex = keys.findIndex(k => 
-                (k.includes('blink') || k.includes('Blink') || k.includes('closed')) && 
-                (k.includes('left') || k.includes('Left') || k.includes('L'))
-            )
-            const rightIndex = keys.findIndex(k => 
-                (k.includes('blink') || k.includes('Blink') || k.includes('closed')) && 
-                (k.includes('right') || k.includes('Right') || k.includes('R'))
-            )
-            const unifiedIndex = keys.findIndex(k => k.toLowerCase() === 'blink' || k.toLowerCase() === 'eyesclosed')
 
-            if (leftIndex !== -1 && rightIndex !== -1) {
-                setFaceMesh(node)
-                setBlinkIndices({ left: leftIndex, right: rightIndex })
-            } else if (unifiedIndex !== -1) {
-                setFaceMesh(node)
-                setBlinkIndices({ left: unifiedIndex, right: unifiedIndex })
+            // 1. Mouth & Smile
+            const openIdx = keys.findIndex(k => k === "mouthOpen")
+            const smileIdx = keys.findIndex(k => k === "mouthSmile")
+            
+            if (openIdx !== -1 || smileIdx !== -1) {
+                foundMouths.push({ 
+                    mesh: node, 
+                    openIdx: openIdx, 
+                    smileIdx: smileIdx 
+                })
+            }
+
+            // 2. Blinks
+            const leftIndex = keys.findIndex(k => k.includes('blink') || k.includes('Blink'))
+            if (leftIndex !== -1) {
+                 foundBlinks.push({ mesh: node, left: leftIndex, right: leftIndex })
             }
         }
       }
@@ -73,16 +81,19 @@ export default function Avatar() {
         if (name === "Head" || name === "mixamorigHead") setHead(node)
         if (name === "Neck" || name === "mixamorigNeck") setNeck(node)
         if (name === "Spine2" || name === "mixamorigSpine2") setSpine(node)
-        
         if (name === "RightArm" || name === "mixamorigRightArm") setRightArm(node)
         if (name === "LeftArm" || name === "mixamorigLeftArm") setLeftArm(node)
         if (name === "RightForeArm" || name === "mixamorigRightForeArm") setRightForeArm(node)
         if (name === "LeftForeArm" || name === "mixamorigLeftForeArm") setLeftForeArm(node)
       }
     })
+
+    setMouthMeshes(foundMouths)
+    setBlinkMeshes(foundBlinks)
+
   }, [scene])
 
-  // --- POSTURE (Preserved) ---
+  // --- POSTURE (Arms Tucked) ---
   useEffect(() => {
     if (!rightArm || !leftArm || !rightForeArm || !leftForeArm) return
     rightArm.rotation.z = -1.3
@@ -94,30 +105,41 @@ export default function Avatar() {
   }, [rightArm, leftArm, rightForeArm, leftForeArm])
 
 
-  // --- STEP 4: TEXT-TO-SPEECH INIT ---
+  // --- EMOTION TESTER (Cycles every 5s) ---
   useEffect(() => {
-    // Simple greeting to test voice capability
+      const emotions: Emotion[] = ["neutral", "happy", "concerned"];
+      let idx = 0;
+      const interval = setInterval(() => {
+          idx = (idx + 1) % emotions.length;
+          setEmotion(emotions[idx]);
+      }, 5000); 
+      return () => clearInterval(interval);
+  }, []);
+
+  // --- SPEECH ---
+  useEffect(() => {
     const speak = () => {
-        if (!window.speechSynthesis) return;
+        const synth = window.speechSynthesis;
+        if (!synth) return;
+        let voices = synth.getVoices();
         
-        // Cancel any previous speech
-        window.speechSynthesis.cancel();
+        const runSpeech = () => {
+            const utterance = new SpeechSynthesisUtterance("I am centered. I am cycling through emotions. Neutral. Happy. Concerned.");
+            const preferredVoice = voices.find(v => v.name.includes("Google US English") || v.name.includes("Zira"));
+            if (preferredVoice) utterance.voice = preferredVoice;
+            utterance.rate = 0.9; 
+            utterance.onstart = () => { isSpeaking.current = true }
+            utterance.onend = () => { isSpeaking.current = false }
+            synth.cancel();
+            synth.speak(utterance);
+        };
 
-        const utterance = new SpeechSynthesisUtterance("Hello. I am here to listen. How are you feeling today?");
-        
-        // Try to pick a softer voice
-        const voices = window.speechSynthesis.getVoices();
-        const femaleVoice = voices.find(v => v.name.includes("Female") || v.name.includes("Samantha") || v.name.includes("Google US English"));
-        if (femaleVoice) utterance.voice = femaleVoice;
-        
-        utterance.rate = 0.9; // Slightly slower is more therapeutic
-        utterance.pitch = 1.0;
-
-        // Speak
-        window.speechSynthesis.speak(utterance);
+        if (voices.length > 0) runSpeech();
+        else synth.onvoiceschanged = () => {
+            voices = synth.getVoices();
+            runSpeech();
+        };
     };
-
-    // Small delay to ensure browser is ready
     const timer = setTimeout(speak, 1000);
     return () => clearTimeout(timer);
   }, []);
@@ -128,19 +150,22 @@ export default function Avatar() {
     if (!group.current) return
     const t = state.clock.elapsedTime
 
-    // --- IDLE MOTION ---
+    // 1. IDLE
     if (spine) {
       spine.rotation.x = Math.sin(t * 1) * 0.03 + Math.sin(t * 2.5) * 0.01
       spine.rotation.y = Math.sin(t * 0.5) * 0.03
       spine.rotation.z = Math.sin(t * 0.8) * 0.02
     }
     if (neck) {
+      // Removed Neck Z-Tilt to prevent off-center drift
       neck.rotation.y = Math.sin(t * 0.6) * 0.05
       neck.rotation.x = Math.sin(t * 1.2) * 0.02
     }
+    
+    // Kept standard breathing height
     group.current.position.y = Math.sin(t * 1.2) * 0.01
 
-    // --- EYE CONTACT ---
+    // 2. EYE CONTACT
     if (head) {
       const cameraPos = state.camera.position.clone()
       const localCameraPos = head.worldToLocal(cameraPos)
@@ -154,14 +179,13 @@ export default function Avatar() {
       head.quaternion.slerp(targetQuaternion, 0.1)
     }
 
-    // --- BLINKING (Reverted) ---
-    if (faceMesh && blinkIndices && faceMesh.morphTargetInfluences) {
+    // 3. BLINKING
+    if (blinkMeshes.length > 0) {
         blinkState.current.nextBlink -= delta
-        if (blinkState.current.nextBlink <= 0 && !blinkState.current.closing && blinkState.current.value <= 0) {
+        if (blinkState.current.nextBlink <= 0 && !blinkState.current.closing) {
             blinkState.current.closing = true
             blinkState.current.nextBlink = Math.random() * 3 + 2 
         }
-
         if (blinkState.current.closing) {
             blinkState.current.value += delta * 15
             if (blinkState.current.value >= 1) {
@@ -172,9 +196,47 @@ export default function Avatar() {
             blinkState.current.value -= delta * 15
             if (blinkState.current.value <= 0) blinkState.current.value = 0
         }
+        blinkMeshes.forEach(item => {
+            if (item.mesh.morphTargetInfluences) {
+                item.mesh.morphTargetInfluences[item.left] = blinkState.current.value
+                item.mesh.morphTargetInfluences[item.right] = blinkState.current.value
+            }
+        })
+    }
 
-        faceMesh.morphTargetInfluences[blinkIndices.left] = blinkState.current.value
-        faceMesh.morphTargetInfluences[blinkIndices.right] = blinkState.current.value
+    // 4. LIP SYNC + EMOTIONS (Facial Only)
+    if (mouthMeshes.length > 0) {
+        let targetOpen = 0;
+        let targetSmile = 0;
+
+        // Lip Sync
+        if (isSpeaking.current) {
+            targetOpen = Math.abs(Math.sin(t * 12)) * 0.6 + 0.1
+        } 
+
+        // Emotions
+        if (emotion === "happy") {
+            targetSmile = 0.7; // Big smile
+        } else if (emotion === "neutral") {
+            targetSmile = 0.05; // Polite
+        } else {
+            // Concerned: Serious face (No smile)
+            targetSmile = 0.0; 
+        }
+
+        // Apply
+        mouthMeshes.forEach(item => {
+             if (item.mesh.morphTargetInfluences) {
+                 if (item.openIdx !== -1) {
+                    const currentOpen = item.mesh.morphTargetInfluences[item.openIdx]
+                    item.mesh.morphTargetInfluences[item.openIdx] = THREE.MathUtils.lerp(currentOpen, targetOpen, 0.2)
+                 }
+                 if (item.smileIdx !== -1) {
+                    const currentSmile = item.mesh.morphTargetInfluences[item.smileIdx]
+                    item.mesh.morphTargetInfluences[item.smileIdx] = THREE.MathUtils.lerp(currentSmile, targetSmile, 0.05)
+                 }
+             }
+        })
     }
   })
 
