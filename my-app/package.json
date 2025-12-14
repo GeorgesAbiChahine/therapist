@@ -9,11 +9,8 @@
     "lint": "eslint"
   },
   "dependencies": {
-<<<<<<< Updated upstream
-    "@google/generative-ai": "^0.24.1",
-=======
     "@base-ui/react": "^1.0.0",
->>>>>>> Stashed changes
+    "@google/generative-ai": "^0.24.1",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.4.2",
     "class-variance-authority": "^0.7.1",
