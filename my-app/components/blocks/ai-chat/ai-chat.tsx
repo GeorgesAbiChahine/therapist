@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { ArrowUp, AudioLines, WandSparkles, Zap, Lightbulb, GraduationCap } from "lucide-react";
 import { Button } from "./ui/button/button";
 import { Card, CardContent, CardFooter } from "./ui/card/card";
@@ -11,7 +11,8 @@ import {
   SelectItem, SelectItemText, SelectItemIndicator, SelectIcon
 } from "./ui/select/select";
 import styles from "./ai-chat.module.css";
-import { getTherapistResponse } from "@/app/actions/chat"; // ⚠️ IMPORTANT
+import { getTherapistResponse } from "@/app/actions/chat";
+import { generateSpeech } from "@/app/actions/voice"; // Rachel via ElevenLabs
 
 const aiModes = [
   { value: "creative", label: "Creative", icon: WandSparkles },
@@ -24,13 +25,18 @@ export function AiChat() {
   const [inputValue, setInputValue] = useState("");
   const [selectedItem, setSelectedItem] = useState<string>(aiModes[0].value);
   const [messages, setMessages] = useState<{ from: "user" | "bot"; text: string }[]>([]);
-  const [history, setHistory] = useState<{ role: "user" | "model"; text: string }[]>([]); // ✅ Ajouté
+  const [history, setHistory] = useState<{ role: "user" | "model"; text: string }[]>([]);
   const [listening, setListening] = useState(false);
   const [recognition, setRecognition] = useState<SpeechRecognition | null>(null);
+  const [isThinking, setIsThinking] = useState(false);
+  const [emotion, setEmotion] = useState<"neutral" | "happy" | "concerned">("neutral");
+  const currentAudio = useRef<HTMLAudioElement | null>(null);
+  const isSpeaking = useRef(false);
 
   // --- Speech Recognition Setup ---
   useEffect(() => {
     if (!("webkitSpeechRecognition" in window || "SpeechRecognition" in window)) return;
+
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     const recog = new SpeechRecognition();
@@ -57,33 +63,54 @@ export function AiChat() {
   // --- Send message ---
   const handleSend = async (overrideText?: string) => {
     const text = overrideText ?? inputValue;
-    if (!text.trim()) return;
+    if (!text.trim() || isThinking) return;
 
     setMessages(prev => [...prev, { from: "user", text }]);
     setInputValue("");
 
     const newHistory = [...history, { role: "user", text }];
     setHistory(newHistory);
+    setIsThinking(true);
 
     try {
-      // --- Appel au backend ---
-      const reply = await getTherapistResponse(newHistory);
+      // --- Appel backend ---
+      const rawReply = await getTherapistResponse(newHistory);
 
-      // --- Mettre à jour messages et history ---
-      setHistory(prev => [...prev, { role: "model", text: reply }]);
-      setMessages(prev => [...prev, { from: "bot", text: reply }]);
+      // --- Gestion des émotions ---
+      let cleanText = rawReply;
+      let newEmotion: "neutral" | "happy" | "concerned" = "neutral";
+      const tagMatch = rawReply.match(/^\[(.*?)\]/);
+      if (tagMatch) {
+        const tag = tagMatch[1].toUpperCase();
+        cleanText = rawReply.replace(/^\[(.*?)\]/, "").trim();
+        if (tag.includes("HAPPY")) newEmotion = "happy";
+        else if (tag.includes("CONCERNED")) newEmotion = "concerned";
+      }
 
-      // --- Synthèse vocale ---
-      const synth = window.speechSynthesis;
-      const utterance = new SpeechSynthesisUtterance(reply);
-      const voices = synth.getVoices();
-      const preferredVoice = voices.find(v => v.lang.startsWith("fr"));
-      if (preferredVoice) utterance.voice = preferredVoice;
-      utterance.rate = 0.9;
-      synth.cancel();
-      synth.speak(utterance);
+      setHistory(prev => [...prev, { role: "model", text: cleanText }]);
+      setMessages(prev => [...prev, { from: "bot", text: cleanText }]);
+      setEmotion(newEmotion);
+
+      // --- Générer audio Rachel ---
+      const audioUrl = await generateSpeech(cleanText);
+      setIsThinking(false);
+
+      if (audioUrl) {
+        if (currentAudio.current) {
+          currentAudio.current.pause();
+          currentAudio.current = null;
+        }
+        const audio = new Audio(audioUrl);
+        currentAudio.current = audio;
+        audio.play();
+        isSpeaking.current = true;
+        audio.onended = () => { isSpeaking.current = false; }
+      }
+
     } catch (err) {
       console.error(err);
+      setMessages(prev => [...prev, { from: "bot", text: "Erreur lors du traitement." }]);
+      setIsThinking(false);
     }
   };
 
