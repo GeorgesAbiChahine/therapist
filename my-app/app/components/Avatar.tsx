@@ -5,10 +5,10 @@ import { useFrame } from "@react-three/fiber"
 import { useEffect, useRef, useState } from "react"
 import * as THREE from "three"
 import { getTherapistResponse } from "@/app/actions/chat" 
+import { generateSpeech } from "@/app/actions/voice" // 👈 NEW IMPORT
 
 type Emotion = "neutral" | "happy" | "concerned"
 
-// New Type for History
 type Message = {
   role: "user" | "model"
   text: string
@@ -34,12 +34,11 @@ export default function Avatar() {
   const [input, setInput] = useState("")
   const [response, setResponse] = useState("Hello. I am here to listen.")
   const [isThinking, setIsThinking] = useState(false)
-  
-  // ✅ STEP 10: HISTORY STATE
   const [history, setHistory] = useState<Message[]>([])
 
   const blinkState = useRef({ value: 0, closing: false, nextBlink: 2.5 })
   const isSpeaking = useRef(false)
+  const currentAudio = useRef<HTMLAudioElement | null>(null) // 👈 Track Audio Player
 
   // --- INIT ---
   useEffect(() => {
@@ -89,7 +88,7 @@ export default function Avatar() {
   }, [rightArm, leftArm, rightForeArm, leftForeArm])
 
 
-  // --- CHAT HANDLER (With Memory) ---
+  // --- NEW CHAT HANDLER (With ElevenLabs) ---
   const handleChat = async (e: React.FormEvent) => {
       e.preventDefault()
       if (!input.trim() || isThinking) return
@@ -98,12 +97,11 @@ export default function Avatar() {
       const userMessage = input
       setInput("") 
 
-      // 1. Update History with User Message
       const newHistory: Message[] = [...history, { role: "user", text: userMessage }]
       setHistory(newHistory)
       
       try {
-        // 2. Send FULL History to Server
+        // 1. Get Text from Gemini
         const rawText = await getTherapistResponse(newHistory)
 
         const tagMatch = rawText.match(/^\[(.*?)\]/)
@@ -118,23 +116,31 @@ export default function Avatar() {
             else if (tag.includes("CONCERNED")) newEmotion = "concerned"
         }
 
-        // 3. Update History with Model Response
         setHistory(prev => [...prev, { role: "model", text: cleanText }])
-
         setEmotion(newEmotion)
         setResponse(cleanText)
+
+        // 2. Get Audio from ElevenLabs
+        const audioUrl = await generateSpeech(cleanText)
+        
         setIsThinking(false)
 
-        const synth = window.speechSynthesis
-        const utterance = new SpeechSynthesisUtterance(cleanText)
-        const voices = synth.getVoices()
-        const preferredVoice = voices.find(v => v.name.includes("Google US English") || v.name.includes("Zira"))
-        if (preferredVoice) utterance.voice = preferredVoice
-        utterance.rate = 0.9
-        utterance.onstart = () => { isSpeaking.current = true }
-        utterance.onend = () => { isSpeaking.current = false }
-        synth.cancel()
-        synth.speak(utterance)
+        if (audioUrl) {
+            // Stop any previous audio
+            if (currentAudio.current) {
+                currentAudio.current.pause()
+                currentAudio.current = null
+            }
+
+            // Play New Audio
+            const audio = new Audio(audioUrl)
+            currentAudio.current = audio
+            audio.play()
+            
+            // Sync Lip Movement
+            isSpeaking.current = true
+            audio.onended = () => { isSpeaking.current = false }
+        }
 
       } catch (error) {
         console.error(error)
