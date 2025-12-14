@@ -20,13 +20,12 @@ export default function Avatar() {
   const [rightForeArm, setRightForeArm] = useState<THREE.Object3D | null>(null)
   const [leftForeArm, setLeftForeArm] = useState<THREE.Object3D | null>(null)
 
-  // --- STEP 3 STATE: EYE MESHES (For "Squash Blink") ---
-  const [eyeL, setEyeL] = useState<THREE.Object3D | null>(null)
-  const [eyeR, setEyeR] = useState<THREE.Object3D | null>(null)
+  // --- FACE MESH STATE (Reverted to Morph Search) ---
+  const [faceMesh, setFaceMesh] = useState<THREE.SkinnedMesh | null>(null)
+  const [blinkIndices, setBlinkIndices] = useState<{left: number, right: number} | null>(null)
   
-  // Blink Logic Ref
-  // value: current Scale Y (1 = open, 0.1 = closed)
-  const blinkState = useRef({ value: 1, closing: false, nextBlink: 2.5 })
+  // Blink Timer
+  const blinkState = useRef({ value: 0, closing: false, nextBlink: 2.5 })
 
   useEffect(() => {
     // 1. Center Avatar
@@ -38,20 +37,34 @@ export default function Avatar() {
     scene.position.z -= center.z
     scene.position.y += size.y / 2
 
-    // 2. Find Bones & Eye Meshes
+    // 2. Find Bones & Face Mesh
     scene.traverse((node: any) => {
       if (node.isMesh) {
         node.castShadow = true
         node.frustumCulled = false
 
-        // --- FIND EYES MANUALLY ---
-        // Your logs showed "EyeLeft" and "EyeRight" exist as meshes.
-        // We will target them directly for scaling.
-        if (node.name.includes("EyeLeft")) {
-            setEyeL(node)
-        }
-        if (node.name.includes("EyeRight")) {
-            setEyeR(node)
+        // --- SMART FIND FACE MESH (Reverted Logic) ---
+        if (node.morphTargetDictionary) {
+            const keys = Object.keys(node.morphTargetDictionary)
+            
+            // Search for blink shapes
+            const leftIndex = keys.findIndex(k => 
+                (k.includes('blink') || k.includes('Blink') || k.includes('closed')) && 
+                (k.includes('left') || k.includes('Left') || k.includes('L'))
+            )
+            const rightIndex = keys.findIndex(k => 
+                (k.includes('blink') || k.includes('Blink') || k.includes('closed')) && 
+                (k.includes('right') || k.includes('Right') || k.includes('R'))
+            )
+            const unifiedIndex = keys.findIndex(k => k.toLowerCase() === 'blink' || k.toLowerCase() === 'eyesclosed')
+
+            if (leftIndex !== -1 && rightIndex !== -1) {
+                setFaceMesh(node)
+                setBlinkIndices({ left: leftIndex, right: rightIndex })
+            } else if (unifiedIndex !== -1) {
+                setFaceMesh(node)
+                setBlinkIndices({ left: unifiedIndex, right: unifiedIndex })
+            }
         }
       }
       
@@ -79,6 +92,35 @@ export default function Avatar() {
     rightArm.rotation.y = -0.2
     leftArm.rotation.y = 0.2
   }, [rightArm, leftArm, rightForeArm, leftForeArm])
+
+
+  // --- STEP 4: TEXT-TO-SPEECH INIT ---
+  useEffect(() => {
+    // Simple greeting to test voice capability
+    const speak = () => {
+        if (!window.speechSynthesis) return;
+        
+        // Cancel any previous speech
+        window.speechSynthesis.cancel();
+
+        const utterance = new SpeechSynthesisUtterance("Hello. I am here to listen. How are you feeling today?");
+        
+        // Try to pick a softer voice
+        const voices = window.speechSynthesis.getVoices();
+        const femaleVoice = voices.find(v => v.name.includes("Female") || v.name.includes("Samantha") || v.name.includes("Google US English"));
+        if (femaleVoice) utterance.voice = femaleVoice;
+        
+        utterance.rate = 0.9; // Slightly slower is more therapeutic
+        utterance.pitch = 1.0;
+
+        // Speak
+        window.speechSynthesis.speak(utterance);
+    };
+
+    // Small delay to ensure browser is ready
+    const timer = setTimeout(speak, 1000);
+    return () => clearTimeout(timer);
+  }, []);
 
 
   // --- ANIMATION LOOP ---
@@ -112,37 +154,27 @@ export default function Avatar() {
       head.quaternion.slerp(targetQuaternion, 0.1)
     }
 
-    // --- STEP 3: BLINK (THE "SQUASH" TRICK) ---
-    // If we found the eye meshes, we scale them down to simulate a blink.
-    if (eyeL && eyeR) {
-        
-        // Timer Logic
+    // --- BLINKING (Reverted) ---
+    if (faceMesh && blinkIndices && faceMesh.morphTargetInfluences) {
         blinkState.current.nextBlink -= delta
-        if (blinkState.current.nextBlink <= 0 && !blinkState.current.closing) {
+        if (blinkState.current.nextBlink <= 0 && !blinkState.current.closing && blinkState.current.value <= 0) {
             blinkState.current.closing = true
             blinkState.current.nextBlink = Math.random() * 3 + 2 
         }
 
-        // Animation Logic (Scale Y)
-        // 1 = Open, 0.1 = Closed (Squashed)
         if (blinkState.current.closing) {
-            // Close fast
-            blinkState.current.value -= delta * 15 
-            if (blinkState.current.value <= 0.1) {
-                blinkState.current.value = 0.1
-                blinkState.current.closing = false // Start opening
-            }
-        } else {
-            // Open fast
             blinkState.current.value += delta * 15
             if (blinkState.current.value >= 1) {
                 blinkState.current.value = 1
+                blinkState.current.closing = false
             }
+        } else {
+            blinkState.current.value -= delta * 15
+            if (blinkState.current.value <= 0) blinkState.current.value = 0
         }
 
-        // Apply Scale
-        eyeL.scale.y = blinkState.current.value
-        eyeR.scale.y = blinkState.current.value
+        faceMesh.morphTargetInfluences[blinkIndices.left] = blinkState.current.value
+        faceMesh.morphTargetInfluences[blinkIndices.right] = blinkState.current.value
     }
   })
 
