@@ -15,18 +15,14 @@ export default function Avatar() {
   const [head, setHead] = useState<THREE.Object3D | null>(null)
   const [neck, setNeck] = useState<THREE.Object3D | null>(null)
   const [spine, setSpine] = useState<THREE.Object3D | null>(null)
-  
-  // Posture
   const [rightArm, setRightArm] = useState<THREE.Object3D | null>(null)
   const [leftArm, setLeftArm] = useState<THREE.Object3D | null>(null)
   const [rightForeArm, setRightForeArm] = useState<THREE.Object3D | null>(null)
   const [leftForeArm, setLeftForeArm] = useState<THREE.Object3D | null>(null)
 
-  // Morphs
   const [mouthMeshes, setMouthMeshes] = useState<{mesh: THREE.Mesh, openIdx: number, smileIdx: number}[]>([]) 
   const [blinkMeshes, setBlinkMeshes] = useState<any[]>([]) 
   
-  // Logic
   const [emotion, setEmotion] = useState<Emotion>("neutral")
   const [input, setInput] = useState("")
   const [response, setResponse] = useState("Hello. I am here to listen.")
@@ -35,8 +31,7 @@ export default function Avatar() {
   const isSpeaking = useRef(false)
 
   useEffect(() => {
-    // 1. SETUP (Removed all manual positioning logic)
-    // We let the model load at its default origin (Feet at 0,0,0)
+    // 1. SETUP
     const foundMouths: {mesh: THREE.Mesh, openIdx: number, smileIdx: number}[] = []
     const foundBlinks: any[] = []
 
@@ -84,7 +79,7 @@ export default function Avatar() {
     leftArm.rotation.y = 0.2
   }, [rightArm, leftArm, rightForeArm, leftForeArm])
 
-  // --- CHAT ---
+  // --- CHAT LOGIC ---
   const handleChat = (e: React.FormEvent) => {
       e.preventDefault()
       if (!input.trim()) return
@@ -92,7 +87,7 @@ export default function Avatar() {
       
       const lower = input.toLowerCase()
       let nextEmotion: Emotion = "neutral"
-      if (lower.includes("sad") || lower.includes("bad") || lower.includes("worry")) nextEmotion = "concerned"
+      if (lower.includes("sad") || lower.includes("bad") || lower.includes("worry") || lower.includes("hard")) nextEmotion = "concerned"
       if (lower.includes("happy") || lower.includes("good") || lower.includes("great")) nextEmotion = "happy"
       setEmotion(nextEmotion)
 
@@ -118,7 +113,7 @@ export default function Avatar() {
       }, 800) 
   }
 
-  // --- ANIMATION ---
+  // --- ANIMATION LOOP ---
   useFrame((state, delta) => {
     if (!group.current) return
     const t = state.clock.elapsedTime
@@ -132,7 +127,6 @@ export default function Avatar() {
       neck.rotation.y = Math.sin(t * 0.6) * 0.05
       neck.rotation.x = Math.sin(t * 1.2) * 0.02
     }
-    // Simple breathing bob
     group.current.position.y = Math.sin(t * 1.2) * 0.01
 
     if (head) {
@@ -196,16 +190,17 @@ export default function Avatar() {
   })
 
   // --- FINAL ALIGNMENT ---
-  // Group: x=0.25 (Shift Right), y=0 (Feet on floor)
-  // UI: y=1.65 (Head level), x=-0.5 (Left of head)
+  // Avatar: x=0.4 (Right), y=0 (Ground Level)
+  // UI: x=-0.8 (Further Left), y=1.6 (Eye Level), z=0.6 (Forward)
+  // Scale: 0.12 (Smaller)
   return (
-    <group ref={group} position={[0.25, 0, 0]}>
+    <group ref={group} position={[0.4, 0, 0]}>
         <primitive object={scene} scale={1.15} />
 
         <Html 
-            position={[-0.5, 1.65, 0.5]} 
+            position={[-0.8, 1.6, 0.6]} 
             transform 
-            scale={0.2}
+            scale={0.12}
         >
             <div style={{
                 background: 'rgba(255, 255, 255, 0.95)',
